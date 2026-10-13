@@ -3,29 +3,46 @@ function handRunning(){return !!game().table?.hand;}
 function renderTable(){
   const g=game(),t=tableState(),h=t.hand,available=g.players.filter(p=>p.end>0);
   $('smallblind').value=t.small;$('bigblind').value=t.big;
+  $('blind-summary').textContent='小盲 '+fmt(t.small)+' / 大盲 '+fmt(t.big);
+  const setupKey=g.id+':'+Boolean(h);
+  if(renderTable.setupKey!==setupKey){
+    $('table-setup').open=!h;
+    if(window.matchMedia('(max-width: 700px)').matches)document.querySelector('.activity').open=false;
+    renderTable.setupKey=setupKey;
+  }
+  $('play-table').classList.toggle('is-playing',!!h);
   $('auto-next').checked=t.autoNext!==false;
   $('dealer').innerHTML=available.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
   if(available.some(p=>p.id===t.dealer))$('dealer').value=t.dealer;
   ['smallblind','bigblind','dealer','initialize'].forEach(id=>$(id).disabled=!!h||g.mode!=='chips');
   $('start-hand').disabled=!!h||available.length<2||g.mode!=='chips';
-  $('start-hand').textContent=t.number?'开始第 '+(t.number+1)+' 手':'开始第一手';
+  $('start-hand').textContent=h?'本手进行中':t.number?'开始第 '+(t.number+1)+' 手':'开始第一手';
   $('table-message').textContent=g.mode!=='chips'?'请切换到筹码计分来使用逐手牌桌。':h?'按实际座位顺时针操作；本手进行中可用「撤销」修正。':'按添加顺序顺时针入座。选择首位庄家，开始时自动扣除盲注；零筹码玩家自动跳过。';
   const seats=h?h.seats:g.players,roles=h|| (available.length>=2?PokerTable.positions(available,available.some(p=>p.id===t.dealer)?t.dealer:available[0].id):{});
+  document.querySelector('.felt').classList.toggle('many-seats',seats.length>8);
   $('table-seats').className=seats.length>10?'seat-grid':'seat-ring';
   $('table-seats').innerHTML=seats.map((p,i)=>{
     const badges=[roles.dealer===p.id?'庄家 D':'',roles.sb===p.id?'小盲 SB':'',roles.bb===p.id?'大盲 BB':''].filter(Boolean).join(' · ');
     const angle=2*Math.PI*i/seats.length-Math.PI/2;
     const style=seats.length<=10?`left:${50+38*Math.cos(angle)}%;top:${50+39*Math.sin(angle)}%`:'';
-    return `<div class="seat ${h?.turn===p.id?'turn':''} ${p.folded?'folded':''}" style="${style}"><strong>${i+1}. ${esc(p.name)}</strong><span class="seat-role">${badges||'玩家'}</span><span>${fmt(h?p.stack:p.end)} 筹码</span>${h?`<small>${p.folded?'已弃牌':!p.stack?'ALL IN':'本轮 '+fmt(p.round)} · 已投 ${fmt(p.total)}</small>`:''}</div>`;
+    return `<div class="seat ${h?.turn===p.id?'turn':''} ${p.folded?'folded':''}" ${h?.turn===p.id?'aria-current="true"':''} style="${style}"><strong>${i+1}. ${esc(p.name)}</strong><span class="seat-role">${badges||'玩家'}</span><span>${fmt(h?p.stack:p.end)} 筹码</span>${h?`<small>${p.folded?'已弃牌':!p.stack?'ALL IN':'本轮 '+fmt(p.round)} · 已投 ${fmt(p.total)}</small>`:''}</div>`;
   }).join('');
-  $('hand-number').textContent=h?'第 '+t.number+' 手 · '+PokerTable.streets[h.street]:'顺时针轮庄 ↻';
+  $('hand-number').textContent=h?'第 '+t.number+' 手 · '+PokerTable.streets[h.street]:available.length<2?'等待玩家入座':'准备第 '+(t.number+1)+' 手';
   $('pot-total').textContent=h?fmt(h.seats.reduce((s,p)=>s+p.total,0)):'0';
   const o=h?PokerTable.options(h):null;
   $('action-panel').hidden=!o;$('payout-panel').hidden=!h||h.street!==4;
+  $('idle-panel').hidden=!!h;
+  $('idle-title').textContent=g.mode==='points'?'直接计分模式':available.length<2?'等待玩家入座':'可以开始下一手';
+  $('idle-description').textContent=g.mode==='points'?'在下方玩家表中记录每轮增减分；切换到筹码计分后可使用逐手牌桌。':available.length<2?'按现场顺时针座位添加至少两位有筹码的玩家，再选择庄家与盲注。':'核对本手庄家与大小盲，点击「开始」自动扣盲注。结束整场前关闭自动下一手。';
+  $('street-track').querySelectorAll('li').forEach((el,i)=>{
+    el.classList.toggle('is-current',!!h&&i===h.street);el.classList.toggle('is-complete',!!h&&i<h.street);
+    if(h&&i===h.street)el.setAttribute('aria-current','step');else el.removeAttribute('aria-current');
+  });
   if(o){
     $('current-turn').textContent='轮到 '+o.p.name;
     $('call-action').textContent=o.call?'跟注 '+fmt(Math.min(o.call,o.p.stack))+(o.call>=o.p.stack?'（全下）':''):'过牌';
     $('raise-action').disabled=!o.canRaise;$('allin-action').disabled=!o.canRaise&&o.max>h.bet;
+    $('raise-total').disabled=!o.canRaise;
     $('raise-total').min=Math.min(o.min,o.max);$('raise-total').max=o.max;$('raise-total').value=Math.min(o.min,o.max);
     $('bet-hint').textContent='本轮需跟至 '+fmt(h.bet)+' · '+(o.canRaise?'最低加注总额 '+fmt(o.min)+'（含本轮已投）':'当前只能跟注 / 过牌或弃牌');
   }
@@ -33,7 +50,9 @@ function renderTable(){
     $('pools').innerHTML=PokerTable.pots(h).map((pool,i)=>`<fieldset data-pool="${i}"><legend>${pool.refund?'未被跟注 · 退回':i===0?'主池':'边池 '+i}：${fmt(pool.amount)}</legend>${pool.eligible.map(id=>{const p=h.seats.find(p=>p.id===id);return `<label><input type="checkbox" value="${esc(id)}" ${pool.eligible.length===1?'checked disabled':''}> ${esc(p.name)}</label>`;}).join('')}</fieldset>`).join('');
   }
   $('hand-records').innerHTML=t.records.length?t.records.map(s=>`<div>${esc(s)}</div>`).join(''):'结束每手后，这里会显示本手输赢。';
-  $('diff').previousElementSibling.textContent=h?'本手底池':'筹码差额';$('copy').disabled=!!h;
+  $('diff').previousElementSibling.textContent=h?'本手底池':g.mode==='points'?'总分差额':'筹码差额';$('copy').disabled=!!h;
+  $('roster-description').textContent=g.mode==='points'?'按每轮正负整数记分，所有玩家总得分为零后可结算。':'当前筹码自动随每手结算更新，整场结束后核对净得分。';
+  $('settlement-formula').textContent=g.mode==='points'?'净得分 = 每轮增减分的合计。玩家总得分为零时生成转分建议。':'净得分 = 当前筹码 − 累计买入。玩家总得分为零时生成转分建议。';
   if(h){$('diff').textContent=fmt(h.seats.reduce((s,p)=>s+p.total,0));$('diff').className='';$('notice').textContent='本手正在进行，筹码已进入底池。结算本手后再查看整场转分建议。';$('settlement').innerHTML='';}
   $('add').querySelector('button').disabled=!!h;
   $('mode').disabled=!!h;
