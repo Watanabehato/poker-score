@@ -57,6 +57,7 @@ function renderTable(){
   $('add').querySelector('button').disabled=!!h;
   $('mode').disabled=!!h;
   $('players').querySelectorAll('input,button').forEach(el=>el.disabled=!!h);
+  window.PokerCompareUI?.syncContext();
 }
 function tableChange(message,fn){try{fn();}catch(e){toast(e.message);render();}}
 function initTableUI(){
